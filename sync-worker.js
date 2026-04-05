@@ -126,29 +126,26 @@ async function ensureLoggedIn(page, context) {
 }
 
 async function openNuvemshopModule(page) {
-  await clickByText(page, ["Meus aplicativos"]);
-  await page.waitForTimeout(1500);
+  const baseUrl = new URL(process.env.GESTAOCLICK_URL).origin;
+  const nuvemshopUrl = `${baseUrl}/nuvem_shop`;
 
-  await tryClickByText(page, ["Ver todos os aplicativos"]);
-  await page.waitForTimeout(1500);
+  await page.goto(nuvemshopUrl, {
+    waitUntil: "domcontentloaded",
+  });
 
-  await clickButtonInsideCard(page, ["NuvemShop", "Nuvemshop"], ["Acessar"]);
-  await page.waitForTimeout(3000);
+  await page.waitForTimeout(4000);
 
-  await tryClickByText(page, ["Acessar aplicativo"]);
-  await page.waitForTimeout(2500);
-
-  await waitForAnyText(page, ["Produtos", "Pedidos", "Sincronizar"], 20000);
+  await waitForAnyText(page, ["Produtos", "Sincronizar", "Pedidos"], 20000);
 }
 
 async function runProductSync(page) {
   await waitForAnyText(page, ["Produtos"], 20000);
   await clickByText(page, ["Produtos"], { timeout: 10000 });
-  await page.waitForTimeout(2000);
+  await page.waitForTimeout(2500);
 
   await waitForAnyText(page, ["Sincronizar"], 15000);
   await clickVisibleButtonByText(page, ["Sincronizar"], { timeout: 10000 });
-  await page.waitForTimeout(2000);
+  await page.waitForTimeout(2500);
 
   await waitForAnyText(
     page,

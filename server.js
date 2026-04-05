@@ -5,7 +5,11 @@ const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
 const { executeLoginOnly, executeSync } = require("./sync-worker");
-const { SCREENSHOT_PATH } = require("./playwright-helpers");
+const {
+  SCREENSHOT_PATH,
+  HTML_DUMP_PATH,
+  META_PATH,
+} = require("./playwright-helpers");
 const { readState, updateState, pruneProcessedEvents } = require("./storage");
 
 const app = express();
@@ -96,6 +100,7 @@ async function processQueue() {
           state.lastError = {
             message: error.message || "Erro desconhecido",
             at: nowIso(),
+            debugMeta: error.debugMeta || null,
           };
           state.isProcessing = state.queue.length > 0;
           return state;
@@ -137,14 +142,41 @@ app.get("/admin/last-screenshot", requireAdmin, (_req, res) => {
   return res.sendFile(path.resolve(SCREENSHOT_PATH));
 });
 
+app.get("/admin/last-meta", requireAdmin, (_req, res) => {
+  if (!fs.existsSync(META_PATH)) {
+    return res.status(404).json({ ok: false, error: "meta_not_found" });
+  }
+
+  const raw = fs.readFileSync(META_PATH, "utf8");
+  return res.type("application/json").send(raw);
+});
+
+app.get("/admin/last-html", requireAdmin, (_req, res) => {
+  if (!fs.existsSync(HTML_DUMP_PATH)) {
+    return res.status(404).send("Sem html salvo.");
+  }
+
+  return res.sendFile(path.resolve(HTML_DUMP_PATH));
+});
+
 app.post("/admin/login-only", requireAdmin, async (_req, res) => {
   try {
     await executeLoginOnly();
     res.json({ ok: true, action: "login-only" });
   } catch (error) {
+    updateState((state) => {
+      state.lastError = {
+        message: error.message || "unknown_error",
+        at: nowIso(),
+        debugMeta: error.debugMeta || null,
+      };
+      return state;
+    });
+
     res.status(500).json({
       ok: false,
       error: error.message || "unknown_error",
+      debugMeta: error.debugMeta || null,
     });
   }
 });

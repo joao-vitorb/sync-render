@@ -3,7 +3,7 @@ const {
   STORAGE_STATE_PATH,
   hasSavedStorageState,
   saveStorageState,
-  saveErrorScreenshot,
+  saveErrorArtifacts,
   fillFirstAvailable,
   clickFirstAvailable,
   clickByText,
@@ -27,6 +27,8 @@ async function createContext(browser) {
 
   return browser.newContext({
     viewport: { width: 1600, height: 900 },
+    userAgent:
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
   });
 }
 
@@ -84,7 +86,7 @@ async function doLogin(page) {
     "botão de login",
   );
 
-  await page.waitForTimeout(4000);
+  await page.waitForTimeout(5000);
 }
 
 async function ensureLoggedIn(page, context) {
@@ -92,7 +94,7 @@ async function ensureLoggedIn(page, context) {
     waitUntil: "domcontentloaded",
   });
 
-  await page.waitForTimeout(2500);
+  await page.waitForTimeout(3000);
 
   if (!(await isLoginScreen(page))) {
     await saveStorageState(context);
@@ -145,6 +147,7 @@ async function runProductSync(page) {
 async function executeLoginOnly() {
   const browser = await chromium.launch({
     headless: isHeadlessEnabled(),
+    args: ["--no-sandbox", "--disable-setuid-sandbox"],
   });
 
   const context = await createContext(browser);
@@ -153,12 +156,17 @@ async function executeLoginOnly() {
   try {
     await ensureLoggedIn(page, context);
     await saveStorageState(context);
-
-    return {
-      ok: true,
-    };
+    return { ok: true };
   } catch (error) {
-    await saveErrorScreenshot(page).catch(() => {});
+    const meta = await saveErrorArtifacts(page, {
+      phase: "executeLoginOnly",
+      message: error.message || "unknown_error",
+    }).catch(() => null);
+
+    if (meta) {
+      error.debugMeta = meta;
+    }
+
     throw error;
   } finally {
     await context.close().catch(() => {});
@@ -169,6 +177,7 @@ async function executeLoginOnly() {
 async function executeSync(reason = "manual") {
   const browser = await chromium.launch({
     headless: isHeadlessEnabled(),
+    args: ["--no-sandbox", "--disable-setuid-sandbox"],
   });
 
   const context = await createContext(browser);
@@ -185,7 +194,16 @@ async function executeSync(reason = "manual") {
       reason,
     };
   } catch (error) {
-    await saveErrorScreenshot(page).catch(() => {});
+    const meta = await saveErrorArtifacts(page, {
+      phase: "executeSync",
+      reason,
+      message: error.message || "unknown_error",
+    }).catch(() => null);
+
+    if (meta) {
+      error.debugMeta = meta;
+    }
+
     throw error;
   } finally {
     await context.close().catch(() => {});

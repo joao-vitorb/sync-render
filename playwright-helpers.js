@@ -3,6 +3,8 @@ const fs = require("fs");
 
 const STORAGE_STATE_PATH = path.join(__dirname, "data", "storage-state.json");
 const SCREENSHOT_PATH = path.join(__dirname, "data", "last-screenshot.png");
+const HTML_DUMP_PATH = path.join(__dirname, "data", "last-page.html");
+const META_PATH = path.join(__dirname, "data", "last-meta.json");
 
 function ensureDataDir() {
   const dir = path.join(__dirname, "data");
@@ -20,12 +22,46 @@ function hasSavedStorageState() {
   return fs.existsSync(STORAGE_STATE_PATH);
 }
 
-async function saveErrorScreenshot(page) {
+async function saveErrorArtifacts(page, extra = {}) {
   ensureDataDir();
-  await page.screenshot({
-    path: SCREENSHOT_PATH,
-    fullPage: true,
-  });
+
+  const meta = {
+    at: new Date().toISOString(),
+    url: null,
+    title: null,
+    screenshotSaved: false,
+    htmlSaved: false,
+    ...extra,
+  };
+
+  try {
+    meta.url = page.url();
+  } catch {}
+
+  try {
+    meta.title = await page.title();
+  } catch {}
+
+  try {
+    await page.screenshot({
+      path: SCREENSHOT_PATH,
+      fullPage: true,
+    });
+    meta.screenshotSaved = true;
+  } catch (error) {
+    meta.screenshotError = error.message;
+  }
+
+  try {
+    const html = await page.content();
+    fs.writeFileSync(HTML_DUMP_PATH, html, "utf8");
+    meta.htmlSaved = true;
+  } catch (error) {
+    meta.htmlError = error.message;
+  }
+
+  fs.writeFileSync(META_PATH, JSON.stringify(meta, null, 2), "utf8");
+  return meta;
 }
 
 async function fillFirstAvailable(page, selectors, value, description) {
@@ -224,9 +260,11 @@ async function clickVisibleButtonByText(page, texts, options = {}) {
 module.exports = {
   STORAGE_STATE_PATH,
   SCREENSHOT_PATH,
+  HTML_DUMP_PATH,
+  META_PATH,
   hasSavedStorageState,
   saveStorageState,
-  saveErrorScreenshot,
+  saveErrorArtifacts,
   fillFirstAvailable,
   clickFirstAvailable,
   clickByText,

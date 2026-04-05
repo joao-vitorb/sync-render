@@ -13,12 +13,29 @@ function ensureDataDir() {
   }
 }
 
+function ensureStorageStateFromEnv() {
+  ensureDataDir();
+
+  if (fs.existsSync(STORAGE_STATE_PATH)) {
+    return;
+  }
+
+  const b64 = process.env.GC_STORAGE_STATE_B64;
+  if (!b64) {
+    return;
+  }
+
+  const buffer = Buffer.from(b64, "base64");
+  fs.writeFileSync(STORAGE_STATE_PATH, buffer);
+}
+
 async function saveStorageState(context) {
   ensureDataDir();
   await context.storageState({ path: STORAGE_STATE_PATH });
 }
 
 function hasSavedStorageState() {
+  ensureStorageStateFromEnv();
   return fs.existsSync(STORAGE_STATE_PATH);
 }
 
@@ -272,4 +289,5 @@ module.exports = {
   waitForAnyText,
   clickButtonInsideCard,
   clickVisibleButtonByText,
+  ensureStorageStateFromEnv,
 };

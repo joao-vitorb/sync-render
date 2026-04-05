@@ -11,6 +11,7 @@ const {
   waitForAnyText,
   clickButtonInsideCard,
   clickVisibleButtonByText,
+  ensureStorageStateFromEnv,
 } = require("./playwright-helpers");
 
 function isHeadlessEnabled() {
@@ -18,10 +19,14 @@ function isHeadlessEnabled() {
 }
 
 async function createContext(browser) {
+  ensureStorageStateFromEnv();
+
   if (hasSavedStorageState()) {
     return browser.newContext({
       storageState: STORAGE_STATE_PATH,
       viewport: { width: 1600, height: 900 },
+      userAgent:
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
     });
   }
 
@@ -99,6 +104,16 @@ async function ensureLoggedIn(page, context) {
   if (!(await isLoginScreen(page))) {
     await saveStorageState(context);
     return;
+  }
+
+  if (hasSavedStorageState()) {
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await page.waitForTimeout(3000);
+
+    if (!(await isLoginScreen(page))) {
+      await saveStorageState(context);
+      return;
+    }
   }
 
   await doLogin(page);

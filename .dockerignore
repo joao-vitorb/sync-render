@@ -1,0 +1,8 @@
+node_modules
+npm-debug.log
+.env
+.git
+.gitignore
+data/storage-state.json
+data/state.json
+data/last-screenshot.png

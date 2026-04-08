@@ -315,6 +315,14 @@ app.post(
   },
 );
 
+app.get("/admin/nuvemshop-oauth-callback", (req, res) => {
+  res.json({
+    ok: true,
+    code: req.query.code || null,
+    state: req.query.state || null
+  });
+});
+
 app.listen(PORT, () => {
   console.log(`Servidor iniciado na porta ${PORT}`);
 });

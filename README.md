@@ -4,13 +4,33 @@ O **Sync Render** automatiza a rotina de sincronização de estoque entre a **Nu
 
 ---
 
+## Acesse
+
+- Serviço: `https://sync-render-hb67.onrender.com`
+- Healthcheck: `https://sync-render-hb67.onrender.com/health`
+
+---
+
 ## Objetivo
 
-O objetivo deste projeto é eliminar a necessidade de executar manualmente, a cada venda, o fluxo:
+O objetivo deste projeto é eliminar a necessidade de executar manualmente, a nova cada venda, o fluxo:
 
 **Meus aplicativos > Nuvemshop > Produtos > Sincronizar > Confirmar sincronização**
 
-Com isso, sempre que um pedido pago for identificado na Nuvemshop, o sistema tenta disparar automaticamente a sincronização para refletir a baixa de estoque no GestãoClick.
+Com isso, sempre que um pedido pago for identificado na Nuvemshop, o sistema tenta disparar automaticamente a sincronização para refletir a baixa de estoque no GestãoClick, reduzindo retrabalho e risco de estoque divergente.
+
+---
+
+## Visão Geral do Fluxo
+
+1. A Nuvemshop envia um webhook quando ocorre um evento `order/paid`.
+2. O backend valida a assinatura HMAC do webhook.
+3. O evento entra em uma fila serial.
+4. O worker abre o GestãoClick com Playwright.
+5. O sistema reutiliza a sessão salva do GestãoClick quando disponível.
+6. O worker navega diretamente até o módulo da Nuvemshop no GestãoClick.
+7. A automação abre **Produtos**, clica em **Sincronizar** e confirma a operação.
+8. O sistema salva logs, metadados e screenshot em caso de erro.
 
 ---
 
@@ -19,32 +39,33 @@ Com isso, sempre que um pedido pago for identificado na Nuvemshop, o sistema ten
 ### Webhook da Nuvemshop
 
 - Recebe eventos HTTP da Nuvemshop
-- Valida a assinatura HMAC no header `x-linkedstore-hmac-sha256`
-- Trata apenas eventos `order/paid` no MVP
-- Ignora eventos duplicados com deduplicação por `event/store_id/id`
+- Valida assinatura `x-linkedstore-hmac-sha256`
+- Trata `order/paid`
+- Ignora duplicados por chave de evento
 - Responde rapidamente com `202 Accepted`
 
 ### Fila de processamento
 
+- Processamento serial
 - Evita sincronizações paralelas
-- Processa uma tarefa por vez
-- Mantém estado local de fila e últimos processamentos
-- Registra último sucesso, último erro e último webhook recebido
+- Mantém estado de execução para debug
+- Permite acionamento manual por endpoint admin
 
 ### Automação do GestãoClick
 
-- Reutiliza sessão salva quando disponível
+- Reaproveita sessão salva
 - Faz login automático quando necessário
 - Navega até a integração da Nuvemshop
-- Abre a tela de produtos
-- Clica em **Sincronizar** e confirma a operação no modal
-- Salva screenshot em caso de erro para facilitar debug
+- Executa a sincronização de produtos
+- Salva screenshot e HTML em caso de falha
 
-### Rotas administrativas
+### Administração e diagnóstico
 
 - `GET /health`
 - `GET /admin/debug-state`
 - `GET /admin/last-screenshot`
+- `GET /admin/last-meta`
+- `GET /admin/last-html`
 - `POST /admin/login-only`
 - `POST /admin/run-sync`
 - `POST /admin/test-webhook`
@@ -59,74 +80,70 @@ Com isso, sempre que um pedido pago for identificado na Nuvemshop, o sistema ten
 - Express
 - Playwright
 - dotenv
-- Módulos utilitários para armazenamento local e helpers de automação
-
-### Persistência do MVP
-
-- JSON em disco para estado da fila e deduplicação
-- Arquivo local para `storageState` do navegador
-- Screenshot local para depuração
 
 ### Execução
 
 - Docker
 - Render como alvo inicial de hospedagem do MVP
 
----
+### Hospedagem
 
-## Fluxo da automação
+- Render (Web Service com Docker)
 
-1. A Nuvemshop envia um webhook quando ocorre um `order/paid`
-2. O servidor valida a assinatura e aceita o evento
-3. O evento entra em uma fila serial
-4. O worker inicia a automação com Playwright
-5. O sistema entra no GestãoClick
-6. Abre o app da Nuvemshop dentro do GestãoClick
-7. Vai para **Produtos**
-8. Executa **Sincronizar**
-9. Confirma o modal da sincronização
-10. Registra sucesso ou erro no estado interno
+### Integrações
+
+- Nuvemshop (webhook + OAuth para cadastro do webhook)
+- GestãoClick (automação por navegador)
+
+### Persistência do MVP
+
+- Arquivos locais em `data/`
+  - `state.json`
+  - `storage-state.json`
+  - `last-screenshot.png`
+  - `last-page.html`
+  - `last-meta.json`
 
 ---
 
 ## Estrutura do Projeto
 
 ```text
-lola-sync-render/
+LOLA-SYNC-RENDER/
 │
 ├── data/
 │   └── .gitkeep
+│
+├── auth.js
+├── server.js
+├── sync-worker.js
+├── storage.js
+├── playwright-helpers.js
+│
 ├── .env.example
 ├── .gitignore
 ├── .dockerignore
-├── package.json
-├── storage.js
-├── playwright-helpers.js
-├── sync-worker.js
-├── auth.js
-├── server.js
 ├── Dockerfile
+├── package.json
 └── README.md
 ```
 
----
-
 ## Variáveis de Ambiente
-
-Crie um arquivo `.env` com base no `.env.example`:
 
 ```env
 PORT=3000
 
-ADMIN_KEY=chave-secreta
-NUVEMSHOP_APP_SECRET=client-secret-nuvemshop
+ADMIN_KEY=troque-por-uma-chave-secreta
+NUVEMSHOP_APP_SECRET=troque-pelo-client-secret-do-app-da-nuvemshop
 
-GC_EMAIL=email-login-gestaoclick
-GC_PASSWORD=senha-login-gestaoclick
-GESTAOCLICK_URL=https://link-login-gestaoclick
+GC_EMAIL=seu-login-do-gestaoclick
+GC_PASSWORD=sua-senha-do-gestaoclick
+GESTAOCLICK_URL=https://gestaoclick.com/login
 
 HEADLESS=true
 POST_SYNC_WAIT_MS=12000
+
+GC_STORAGE_STATE_B64=
 ```
 
 ---
@@ -140,109 +157,119 @@ npm install
 npx playwright install chromium
 ```
 
-### Iniciar o servidor
+### Execução
 
 ```bash
 npm run dev
 ```
 
-### Salvar a sessão inicial do GestãoClick
+### Gerar sessão manual do GestãoClick
 
 ```bash
 npm run auth
 ```
 
-Faça login manualmente no navegador aberto e, quando estiver na tela principal do GestãoClick, volte ao terminal e pressione **Enter**.
+Faça login manualmente na janela aberta e pressione **Enter** no terminal para salvar a sessão em `data/storage-state.json`.
 
 ---
 
-## Testes locais
+## Endpoints
 
-### Healthcheck
+### Públicos
 
-```powershell
-Invoke-RestMethod -Method GET -Uri "http://localhost:3000/health"
-```
+- `GET /health`
+- `POST /webhooks/nuvemshop`
 
-### Teste de login
+### Admin
 
-```powershell
-Invoke-RestMethod `
-  -Method POST `
-  -Uri "http://localhost:3000/admin/login-only" `
-  -Headers @{ "x-admin-key" = "SEU_ADMIN_KEY" }
-```
+- `GET /admin/debug-state`
+- `GET /admin/last-screenshot`
+- `GET /admin/last-meta`
+- `GET /admin/last-html`
+- `POST /admin/login-only`
+- `POST /admin/run-sync`
+- `POST /admin/test-webhook`
 
-### Teste de sincronização manual
+---
 
-```powershell
-Invoke-RestMethod `
-  -Method POST `
-  -Uri "http://localhost:3000/admin/run-sync" `
-  -Headers @{ "x-admin-key" = "SEU_ADMIN_KEY" }
-```
+## Fluxo de Operação
 
-### Ver estado interno
+### Sincronização manual
 
-```powershell
-Invoke-RestMethod `
-  -Method GET `
-  -Uri "http://localhost:3000/admin/debug-state" `
-  -Headers @{ "x-admin-key" = "SEU_ADMIN_KEY" }
-```
-
-### Simular webhook de pedido pago
+Use quando quiser forçar uma sincronização:
 
 ```powershell
 Invoke-RestMethod `
   -Method POST `
-  -Uri "http://localhost:3000/admin/test-webhook" `
+  -Uri "https://sync-render-hb67.onrender.com/admin/run-sync" `
+  -Headers @{ "x-admin-key" = "SEU_ADMIN_KEY" }
+```
+
+### Teste fake de webhook
+
+Use para validar o pipeline completo sem depender de uma compra real:
+
+```powershell
+Invoke-RestMethod `
+  -Method POST `
+  -Uri "https://sync-render-hb67.onrender.com/admin/test-webhook" `
   -Headers @{
     "x-admin-key" = "SEU_ADMIN_KEY"
     "Content-Type" = "application/json"
   } `
-  -Body '{"event":"order/paid","store_id":"123","id":"pedido-teste-001"}'
+  -Body '{"event":"order/paid","store_id":"7165733","id":"pedido-teste-manual-001"}'
 ```
 
-### Baixar screenshot de erro
+### Inspecionar o estado atual
 
 ```powershell
-Invoke-WebRequest `
+Invoke-RestMethod `
   -Method GET `
-  -Uri "http://localhost:3000/admin/last-screenshot" `
-  -Headers @{ "x-admin-key" = "SEU_ADMIN_KEY" } `
-  -OutFile "last-screenshot.png"
+  -Uri "https://sync-render-hb67.onrender.com/admin/debug-state" `
+  -Headers @{ "x-admin-key" = "SEU_ADMIN_KEY" }
 ```
-
----
-
-## Observações do MVP
-
-- O projeto usa **filesystem local** para estado, sessão e screenshot
-- Em plataformas com **filesystem efêmero**, isso é suficiente para um MVP e debug, mas não é persistência definitiva
-- O endpoint `/admin/test-webhook` existe para validação interna e pode ser removido depois
-- O fluxo depende de a interface do GestãoClick manter textos e estrutura semelhantes aos usados nos seletores
 
 ---
 
 ## Deploy
 
-O projeto foi preparado para rodar em container Docker.
+O projeto está preparado para deploy como **Web Service Docker** no Render.
 
-### Build local do container
+### Dockerfile
 
-```bash
-docker build -t lola-sync-render .
+O serviço utiliza a imagem oficial do Playwright e sobe o backend Node.js com:
+
+```dockerfile
+CMD ["node", "server.js"]
 ```
 
-### Execução local com Docker
+### Observações do deploy
 
-```bash
-docker run --env-file .env -p 3000:3000 lola-sync-render
-```
+- O serviço precisa das variáveis de ambiente configuradas no Render.
+- Para reaproveitar a sessão do GestãoClick no servidor, use `GC_STORAGE_STATE_B64`.
+- A automação foi validada em ambiente local e em produção no Render via endpoints admin.
+
+---
+
+## Observações Importantes
+
+- O projeto foi pensado como **MVP funcional**.
+- O sistema de arquivos do Render Free é efêmero; os arquivos em `data/` servem para diagnóstico, não para persistência definitiva.
+- Em serviços Free do Render, o web service entra em idle após um período sem tráfego. Em cenários assim, a primeira entrega do webhook pode atrasar e depender de retry da Nuvemshop.
+- Para operação crítica 24/7, o ideal no futuro é migrar para um serviço always-on.
+
+---
+
+## Próximas Melhorias
+
+- Persistir fila e estado em banco/Redis
+- Adicionar alertas automáticos em caso de erro
+- Criar painel simples de monitoramento
+- Melhorar telemetria e logs estruturados
+- Evoluir do Render Free para uma hospedagem sempre ativa
 
 ---
 
 ## Licença
 
-Este projeto é de uso privado e não possui licença pública de distribuição.
+## Este projeto é de uso privado e não possui licença de distribuição.
